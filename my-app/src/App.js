@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import './App.css';
 
+const THROTTLE_INTERVAL = 200;
+
 const App = () => {
   const [poseLandmarker, setPoseLandmarker] = useState(null);
   const [runningMode, setRunningMode] = useState("VIDEO");
@@ -12,6 +14,7 @@ const App = () => {
   const canvasCtxRef = useRef(null);
   const drawingUtilsRef = useRef(null);
   const lastVideoTimeRef = useRef(-1);
+  const intervalRef = useRef(null); // Reference for the throttling interval
 
   // Initialize pose landmarker and start webcam when component mounts
   useEffect(() => {
@@ -97,7 +100,6 @@ const App = () => {
                 console.log("isMounted");
                 adjustVideoSize();
                 setWebcamRunning(true);
-                predictWebcam();
               }
             }
           } catch (webcamError) {
@@ -124,6 +126,12 @@ const App = () => {
         const tracks = videoRef.current.srcObject.getTracks();
         tracks.forEach(track => track.stop());
         videoRef.current.srcObject = null;
+      }
+      
+      // Clear the interval if it exists
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
   }, [runningMode]);
@@ -196,10 +204,6 @@ const App = () => {
 
   // Predict from webcam feed
   const predictWebcam = useCallback(async () => {
-    console.log("videoRef", videoRef.current);
-    console.log("canvasRef", canvasRef.current);
-    console.log("poseLandmarker", poseLandmarker);
-    console.log("canvasCtxRef", canvasCtxRef.current);
     if (!videoRef.current || !canvasRef.current || !poseLandmarker || !canvasCtxRef.current) return;
     
     // Switch to video mode if needed
@@ -222,6 +226,10 @@ const App = () => {
         canvasCtxRef.current.save();
         canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         
+        // Flip the canvas horizontally to correct the mirroring
+        canvasCtxRef.current.scale(-1, 1);
+        canvasCtxRef.current.translate(-canvasRef.current.width, 0);
+        
         for (const landmark of result.landmarks) {
           if (!drawingUtilsRef.current) {
             const { DrawingUtils } = import("https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0");
@@ -237,17 +245,34 @@ const App = () => {
         canvasCtxRef.current.restore();
       });
     }
-    
-  }, 
-  [poseLandmarker, runningMode]
-);
+  }, [poseLandmarker, runningMode]);
 
+  // Set up throttled interval for predictWebcam when webcam is running
   useEffect(() => {
-    // Continue prediction loop if webcam is still running
     if (webcamRunning) {
-      window.requestAnimationFrame(predictWebcam);
+      // Call immediately on start
+      predictWebcam();
+      
+      // Set up throttled interval (every THROTTLE_INTERVAL)
+      intervalRef.current = setInterval(() => {
+        predictWebcam();
+      }, THROTTLE_INTERVAL);
+    } else {
+      // Clear interval when webcam is stopped
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     }
-  }, [webcamRunning, predictWebcam])
+    
+    // Cleanup on unmount or when webcamRunning changes
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [webcamRunning, predictWebcam]);
 
   return (
     <div className="App">
