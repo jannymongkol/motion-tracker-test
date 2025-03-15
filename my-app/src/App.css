@@ -1,0 +1,92 @@
+/* Copyright 2023 The MediaPipe Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+     http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. */
+
+body {
+  font-family: roboto;
+  margin: 0;
+  padding: 0;
+  color: #3d3d3d;
+  --mdc-theme-primary: #007f8b;
+  --mdc-theme-on-primary: #f1f3f4;
+  overflow: hidden;
+  background-color: #000;
+}
+
+/* Video container and elements */
+#videoContainer {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100vh;
+  background-color: #000;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+video {
+  display: block;
+  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
+  -moz-transform: rotateY(180deg);
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.output_canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  /* transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
+  -moz-transform: rotateY(180deg); */
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Webcam button styling */
+#webcamButton {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 100;
+}
+
+.mdc-button {
+  --mdc-theme-primary: #007f8b;
+  --mdc-theme-on-primary: #f1f3f4;
+  margin-bottom: 10px;
+}
+
+/* Video view */
+.videoView {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+}
+
+/* App container */
+.App {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Media queries */
+@media (max-width: 768px) {
+  #webcamButton {
+    top: 10px;
+    left: 10px;
+  }
+}
