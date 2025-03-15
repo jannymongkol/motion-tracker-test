@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import './App.css';
 
 const THROTTLE_INTERVAL = 200;
+const SMOOTHING_WINDOW_SIZE = 10; // Number of frames to average (adjust based on your THROTTLE_INTERVAL)
 
 const App = () => {
   const [poseLandmarker, setPoseLandmarker] = useState(null);
@@ -14,8 +15,11 @@ const App = () => {
   const canvasCtxRef = useRef(null);
   const drawingUtilsRef = useRef(null);
   const lastVideoTimeRef = useRef(-1);
-  const intervalRef = useRef(null); // Reference for the throttling interval
-
+  
+  // References for tracking position history
+  const leftKneeHistoryRef = useRef([]);
+  const rightKneeHistoryRef = useRef([]);
+  
   // Initialize pose landmarker and start webcam when component mounts
   useEffect(() => {
     let isMounted = true;
@@ -127,12 +131,6 @@ const App = () => {
         tracks.forEach(track => track.stop());
         videoRef.current.srcObject = null;
       }
-      
-      // Clear the interval if it exists
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
     };
   }, [runningMode]);
 
@@ -202,6 +200,51 @@ const App = () => {
     };
   }, []);
 
+  // Function to add a point to history and get smoothed value
+  const updatePointHistory = (point, historyRef) => {
+    if (!point) return null;
+    
+    // If the history is too large, remove the oldest entry
+    if (historyRef.current.length >= SMOOTHING_WINDOW_SIZE) {
+      historyRef.current.shift();
+    }
+    
+    // Add current point to history
+    historyRef.current.push({
+      x: point.x,
+      y: point.y,
+      z: point.z || 0,
+      visibility: point.visibility || 1.0
+    });
+    
+    // Only process if we have enough points
+    if (historyRef.current.length < 3) return point;
+    
+    // Calculate averages for each dimension
+    let sumX = 0, sumY = 0, sumZ = 0, sumVisibility = 0;
+    let validPoints = 0;
+    
+    // Apply exponentially weighted moving average (more weight to recent frames)
+    historyRef.current.forEach((histPoint, index) => {
+      // Calculate weight - more recent frames have higher weight
+      const weight = Math.exp(index - historyRef.current.length + 1);
+      
+      sumX += histPoint.x * weight;
+      sumY += histPoint.y * weight;
+      sumZ += histPoint.z * weight;
+      sumVisibility += histPoint.visibility * weight;
+      validPoints += weight;
+    });
+    
+    // Return smoothed point
+    return {
+      x: sumX / validPoints,
+      y: sumY / validPoints,
+      z: sumZ / validPoints,
+      visibility: sumVisibility / validPoints
+    };
+  };
+
   // Predict from webcam feed
   const predictWebcam = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !poseLandmarker || !canvasCtxRef.current) return;
@@ -217,7 +260,7 @@ const App = () => {
     if (lastVideoTimeRef.current !== videoRef.current.currentTime) {
       lastVideoTimeRef.current = videoRef.current.currentTime;
       
-      const { PoseLandmarker, DrawingUtils } = await import(
+      const { PoseLandmarker } = await import(
         "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
       );
       
@@ -230,16 +273,26 @@ const App = () => {
         canvasCtxRef.current.scale(-1, 1);
         canvasCtxRef.current.translate(-canvasRef.current.width, 0);
         
-        for (const landmark of result.landmarks) {
-          if (!drawingUtilsRef.current) {
-            const { DrawingUtils } = import("https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0");
-            drawingUtilsRef.current = new DrawingUtils(canvasCtxRef.current);
+        if (result.landmarks && result.landmarks.length > 0) {
+          const landmarks = result.landmarks[0]; // Get first detected person
+          
+          // Process left knee (landmark 25)
+          if (landmarks[25]) {
+            const rawLeftKnee = landmarks[25];
+            const smoothedLeftKnee = updatePointHistory(rawLeftKnee, leftKneeHistoryRef);
+            if (smoothedLeftKnee) {
+              drawKneeJoint(smoothedLeftKnee, "left");
+            }
           }
           
-          drawingUtilsRef.current.drawLandmarks(landmark, {
-            radius: (data) => DrawingUtils.lerp(data.from.z, -0.15, 0.1, 5, 1)
-          });
-          drawingUtilsRef.current.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS);
+          // Process right knee (landmark 26)
+          if (landmarks[26]) {
+            const rawRightKnee = landmarks[26];
+            const smoothedRightKnee = updatePointHistory(rawRightKnee, rightKneeHistoryRef);
+            if (smoothedRightKnee) {
+              drawKneeJoint(smoothedRightKnee, "right");
+            }
+          }
         }
         
         canvasCtxRef.current.restore();
@@ -247,29 +300,78 @@ const App = () => {
     }
   }, [poseLandmarker, runningMode]);
 
-  // Set up throttled interval for predictWebcam when webcam is running
-  useEffect(() => {
-    if (webcamRunning) {
-      // Call immediately on start
-      predictWebcam();
-      
-      // Set up throttled interval (every THROTTLE_INTERVAL)
-      intervalRef.current = setInterval(() => {
-        predictWebcam();
-      }, THROTTLE_INTERVAL);
+  // Custom function to draw knee joints
+  const drawKneeJoint = (kneePoint, side) => {
+    if (!canvasCtxRef.current || !kneePoint) return;
+    
+    const ctx = canvasCtxRef.current;
+    const radius = 10; // Size of the knee point
+    
+    // Set different colors for left and right knees
+    if (side === "left") {
+      ctx.fillStyle = "#4CAF50"; // Green for left knee
     } else {
-      // Clear interval when webcam is stopped
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      ctx.fillStyle = "#2196F3"; // Blue for right knee
     }
     
-    // Cleanup on unmount or when webcamRunning changes
+    // Draw the knee point
+    ctx.beginPath();
+    ctx.arc(
+      kneePoint.x * canvasRef.current.width,
+      kneePoint.y * canvasRef.current.height,
+      radius,
+      0,
+      2 * Math.PI
+    );
+    ctx.fill();
+    
+    // Add a border
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Add a label
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "16px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      side === "left" ? "L Knee" : "R Knee",
+      kneePoint.x * canvasRef.current.width,
+      (kneePoint.y * canvasRef.current.height) - 15
+    );
+  };
+
+  // Set up throttled interval for predictWebcam when webcam is running
+  useEffect(() => {
+    let animationFrameId = null;
+    let lastCallTime = 0;
+    
+    const throttledPredict = (timestamp) => {
+      // Calculate time since last execution
+      const elapsed = timestamp - lastCallTime;
+      
+      // Only run if enough time has passed (THROTTLE_INTERVAL)
+      if (elapsed > THROTTLE_INTERVAL) {
+        lastCallTime = timestamp;
+        predictWebcam();
+      }
+      
+      // Continue the loop only if webcam is running
+      if (webcamRunning) {
+        animationFrameId = requestAnimationFrame(throttledPredict);
+      }
+    };
+    
+    if (webcamRunning) {
+      // Start the throttled prediction loop
+      animationFrameId = requestAnimationFrame(throttledPredict);
+    }
+    
+    // Cleanup function
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
       }
     };
   }, [webcamRunning, predictWebcam]);
