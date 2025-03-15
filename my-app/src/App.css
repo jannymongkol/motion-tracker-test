@@ -1,4 +1,16 @@
-/* Copyright 2023 The MediaPipe Authors.
+/* Loading indicator */
+.loading-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 20px;
+  border-radius: 8px;
+  z-index: 1000;
+  font-size: 18px;
+}/* Copyright 2023 The MediaPipe Authors.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -45,28 +57,22 @@ video {
 
 .output_canvas {
   position: absolute;
-  left: 0;
-  top: 0;
-  transform-origin: 0 0;
-  /* transform: rotateY(180deg);
+  /* left: 0;
+  top: 0; */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  /* -moz-transform: scale(-1, 1);
+  -webkit-transform: scale(-1, 1);
+  -o-transform: scale(-1, 1);
+  transform: scale(-1, 1);
+  filter: FlipH; */
+  /* transform-origin: 0 0;
+  transform: rotateY(180deg);
   -webkit-transform: rotateY(180deg);
   -moz-transform: rotateY(180deg); */
   pointer-events: none;
   z-index: 10;
-}
-
-/* Webcam button styling */
-#webcamButton {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  z-index: 100;
-}
-
-.mdc-button {
-  --mdc-theme-primary: #007f8b;
-  --mdc-theme-on-primary: #f1f3f4;
-  margin-bottom: 10px;
 }
 
 /* Video view */
@@ -81,12 +87,4 @@ video {
   width: 100%;
   height: 100vh;
   overflow: hidden;
-}
-
-/* Media queries */
-@media (max-width: 768px) {
-  #webcamButton {
-    top: 10px;
-    left: 10px;
-  }
 }

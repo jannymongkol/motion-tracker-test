@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import './App.css';
 
 const App = () => {
@@ -13,8 +13,10 @@ const App = () => {
   const drawingUtilsRef = useRef(null);
   const lastVideoTimeRef = useRef(-1);
 
-  // Initialize pose landmarker when component mounts
+  // Initialize pose landmarker and start webcam when component mounts
   useEffect(() => {
+    let isMounted = true;
+    
     const createPoseLandmarker = async () => {
       try {
         // Import required libraries
@@ -35,22 +37,96 @@ const App = () => {
           numPoses: 2
         });
         
-        setPoseLandmarker(landmarker);
-        
-        // Initialize canvas context and drawing utils
-        if (canvasRef.current) {
-          canvasCtxRef.current = canvasRef.current.getContext("2d");
-          drawingUtilsRef.current = new DrawingUtils(canvasCtxRef.current);
+        // Only update state if component is still mounted
+        if (isMounted) {
+          setPoseLandmarker(landmarker);
+          console.log("landmarker", landmarker);
+          
+          // Initialize canvas context and drawing utils
+          if (canvasRef.current) {
+            canvasCtxRef.current = canvasRef.current.getContext("2d");
+            drawingUtilsRef.current = new DrawingUtils(canvasCtxRef.current);
+          }
+          
+          setIsLoading(false);
+          
+          // Start webcam immediately after pose landmarker is loaded
+          try {
+            console.log("Starting webcam after pose landmarker loaded");
+            
+            // Check if getUserMedia is supported
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+              console.error("getUserMedia is not supported in this browser");
+              return;
+            }
+            
+            // Get video stream with default settings
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+              video: true,
+              audio: false
+            });
+            
+            console.log("Webcam stream obtained successfully");
+            
+            if (videoRef.current && isMounted) {
+              // Add muted attribute to ensure Chrome allows autoplay
+              videoRef.current.muted = true;
+              videoRef.current.srcObject = stream;
+              
+              // Set up a promise for when metadata is loaded
+              const metadataPromise = new Promise(resolve => {
+                videoRef.current.onloadedmetadata = () => {
+                  console.log(`Video metadata loaded: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
+                  resolve();
+                };
+              });
+              
+              // Wait for metadata to load before continuing
+              await metadataPromise;
+              
+              // Play the video
+              try {
+                await videoRef.current.play();
+                console.log("Video playback started");
+              } catch (playError) {
+                console.error("Error playing video:", playError);
+              }
+              
+              // Now adjust size and start predictions
+              if (isMounted) {
+                console.log("isMounted");
+                adjustVideoSize();
+                setWebcamRunning(true);
+                predictWebcam();
+              }
+            }
+          } catch (webcamError) {
+            console.error("Error accessing webcam:", webcamError);
+            alert("Could not access the webcam. Please ensure you've granted camera permission and try again.");
+          }
         }
-        
-        setIsLoading(false);
       } catch (error) {
         console.error("Error initializing pose landmarker:", error);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     createPoseLandmarker();
-  }, []);
+    
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      
+      // Stop webcam if it's running
+      if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = videoRef.current.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [runningMode]);
 
   // Function to adjust video and canvas size based on the actual video dimensions
   const adjustVideoSize = () => {
@@ -102,10 +178,11 @@ const App = () => {
     console.log(`Adjusted sizes - Display: ${newWidth}x${newHeight}, Canvas drawing area: ${videoWidth}x${videoHeight}`);
   };
   
-  // Handle window resize and initial sizing
+  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       if (videoRef.current && videoRef.current.videoWidth) {
+        console.log("handleResize");
         adjustVideoSize();
       }
     };
@@ -117,69 +194,12 @@ const App = () => {
     };
   }, []);
 
-  // Enable webcam and start predictions
-  const enableCam = async () => {
-    if (!poseLandmarker) {
-      console.log("Wait! poseLandmaker not loaded yet.");
-      return;
-    }
-    
-    if (webcamRunning) {
-      setWebcamRunning(false);
-      
-      // Stop webcam
-      if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-      
-      document.getElementById('webcamButton').innerText = "ENABLE WEBCAM";
-      document.body.classList.remove('webcam-active');
-    } else {
-      setWebcamRunning(true);
-      document.getElementById('webcamButton').innerText = "DISABLE WEBCAM";
-      document.body.classList.add('webcam-active');
-      
-      try {
-        // Get video stream with default settings
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "user" } 
-        });
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          
-          // Set up handler for when video metadata is loaded
-          const handleVideoMetadata = () => {
-            console.log(`Video metadata loaded: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
-            adjustVideoSize();
-            videoRef.current.removeEventListener('loadedmetadata', handleVideoMetadata);
-          };
-          
-          // Set up handler for when video data is loaded
-          const handleVideoData = () => {
-            console.log("Video data loaded, starting prediction");
-            predictWebcam();
-            videoRef.current.removeEventListener('loadeddata', handleVideoData);
-          };
-          
-          videoRef.current.addEventListener('loadedmetadata', handleVideoMetadata);
-          videoRef.current.addEventListener('loadeddata', handleVideoData);
-        }
-      } catch (error) {
-        console.error("Error accessing webcam:", error);
-      }
-    }
-  };
-
-  // Check if webcam access is supported
-  const hasGetUserMedia = () => {
-    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-  };
-
   // Predict from webcam feed
-  const predictWebcam = async () => {
+  const predictWebcam = useCallback(async () => {
+    console.log("videoRef", videoRef.current);
+    console.log("canvasRef", canvasRef.current);
+    console.log("poseLandmarker", poseLandmarker);
+    console.log("canvasCtxRef", canvasCtxRef.current);
     if (!videoRef.current || !canvasRef.current || !poseLandmarker || !canvasCtxRef.current) return;
     
     // Switch to video mode if needed
@@ -218,31 +238,28 @@ const App = () => {
       });
     }
     
+  }, 
+  [poseLandmarker, runningMode]
+);
+
+  useEffect(() => {
     // Continue prediction loop if webcam is still running
     if (webcamRunning) {
       window.requestAnimationFrame(predictWebcam);
     }
-  };
+  }, [webcamRunning, predictWebcam])
 
   return (
     <div className="App">
       <div id="liveView" className="videoView">
-        <button 
-          id="webcamButton" 
-          className="mdc-button mdc-button--raised"
-          onClick={enableCam}
-          disabled={isLoading || !hasGetUserMedia()}
-        >
-          <span className="mdc-button__ripple"></span>
-          <span className="mdc-button__label">ENABLE WEBCAM</span>
-        </button>
-        
+        {isLoading && <div className="loading-indicator">Loading pose detection model...</div>}
         <div id="videoContainer">
           <video 
             id="webcam" 
             ref={videoRef}
             autoPlay 
             playsInline
+            muted
           ></video>
           <canvas 
             className="output_canvas" 
