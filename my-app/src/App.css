@@ -103,3 +103,42 @@ video {
   position: absolute;
   transform: translateY(-100%);
 }
+
+.status-panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 10px;
+  border-radius: 5px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-container{
+  font-size: 2em;
+  font-family:'Courier New', Courier, monospace;
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-on {
+  background-color: #4CAF50;
+}
+
+.status-off {
+  background-color: #F44336;
+}

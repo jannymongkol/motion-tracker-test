@@ -26,11 +26,11 @@ const flippedX = canvasWidth - (kneePoint.x * canvasWidth);
 const y = kneePoint.y * canvasRef.current.height;
 
 // Set different colors for left and right knees
-if (side === "left") {
-    ctx.fillStyle = "#4CAF50"; // Green for left knee
-} else {
-    ctx.fillStyle = "#2196F3"; // Blue for right knee
-}
+// if (side === "left") {
+ctx.fillStyle = "#4CAF50"; // Green for left knee
+// } else {
+    // ctx.fillStyle = "#2196F3"; // Blue for right knee
+// }
 
 // Draw the knee point with flipped X coordinate
 ctx.beginPath();
@@ -52,9 +52,9 @@ ctx.stroke();
 ctx.fillStyle = "#FFFFFF";
 ctx.font = "16px Arial";
 ctx.textAlign = "center";
-ctx.fillText(
-    side === "left" ? "L Knee" : "R Knee",
-    flippedX,
-    y - 15
-);
+// ctx.fillText(
+//     side === "left" ? "L Knee" : "R Knee",
+//     flippedX,
+//     y - 15
+// );
 };

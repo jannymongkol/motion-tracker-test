@@ -3,10 +3,16 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   THROTTLE_INTERVAL,
   SMOOTHING_WINDOW_SIZE,
+  // RED_HUE_MAX1,
+  // RED_HUE_MAX2,
+  // RED_HUE_MIN1,
+  // RED_HUE_MIN2,
+  // RED_SATURATION_MIN,
+  // RED_VALUE_MIN,
+  GREEN_HUE_MAX,
   GREEN_HUE_MIN,
-  GREEN_HUE_MAX,      
   GREEN_SATURATION_MIN,
-  GREEN_VALUE_MIN,  
+  GREEN_VALUE_MIN,
   MIN_OBJECT_SIZE,     
   NEAR_DISTANCE,      
 } from './constants';
@@ -378,6 +384,24 @@ const App = () => {
       // Mark pixel in mask (1 for green, 0 for non-green)
       const pixelIndex = Math.floor(i / 4);
       mask[pixelIndex] = isGreen ? 1 : 0;
+      // const r = data[i];
+      // const g = data[i + 1];
+      // const b = data[i + 2];
+      
+      // // Convert RGB to HSV color space for better color detection
+      // const hsv = rgbToHsv(r, g, b);  // Note: fixed parameter order to r,g,b
+      
+      // // Check if the pixel is in the red range (accounting for wrap-around)
+      // const isRed = 
+      //   ((hsv.h >= RED_HUE_MIN1 && hsv.h <= RED_HUE_MAX1) || 
+      //    (hsv.h >= RED_HUE_MIN2 && hsv.h <= RED_HUE_MAX2)) && 
+      //   hsv.s >= RED_SATURATION_MIN && 
+        
+      //   hsv.v >= RED_VALUE_MIN;
+      
+      // // Mark pixel in mask (1 for red, 0 for non-red)
+      // const pixelIndex = Math.floor(i / 4);
+      // mask[pixelIndex] = isRed ? 1 : 0;
     }
     
     // Find connected components (objects) in the mask
@@ -628,7 +652,7 @@ const App = () => {
             flexDirection: 'column',
             gap: '10px'
           }}>
-            <div>
+            {/* <div>
               <span style={{ 
                 display: 'inline-block',
                 width: '12px',
@@ -638,17 +662,10 @@ const App = () => {
                 backgroundColor: areLandmarksShown ? '#4CAF50' : '#F44336'
               }}></span>
               Landmarks: {areLandmarksShown ? 'Detected' : 'Not Detected'}
-            </div>
-            <div>
-              <span style={{ 
-                display: 'inline-block',
-                width: '12px',
-                height: '12px',
-                borderRadius: '50%',
-                marginRight: '8px',
-                backgroundColor: isBoundingBoxShown ? '#4CAF50' : '#F44336'
-              }}></span>
-              Green Objects: {isBoundingBoxShown ? 'Detected' : 'Not Detected'}
+            </div> */}
+            <div className='status-container'>
+              <span className={`status-indicator ${isBoundingBoxShown ? 'status-on' : 'status-off'}`}></span>
+              {isBoundingBoxShown ? 'Correct' : 'Incorrect'}
             </div>
           </div>
         )}
