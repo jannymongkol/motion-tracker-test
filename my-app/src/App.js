@@ -10,6 +10,7 @@ const GREEN_HUE_MAX = 150; // Max green hue in HSV (adjust as needed)
 const GREEN_SATURATION_MIN = 25; // Min saturation percentage
 const GREEN_VALUE_MIN = 25; // Min value percentage
 const MIN_OBJECT_SIZE = 500; // Minimum area in pixels to consider a valid object
+const NEAR_DISTANCE = 100; // Maximum distance in pixels to consider a green object "near" a landmark
 
 const App = () => {
   const [poseLandmarker, setPoseLandmarker] = useState(null);
@@ -272,6 +273,82 @@ const App = () => {
       z: sumZ / validPoints,
       visibility: sumVisibility / validPoints
     };
+  };
+
+  // Function to calculate Euclidean distance between two points
+  const calculateDistance = (x1, y1, x2, y2) => {
+    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+  };
+  
+  // Function to calculate minimum distance from a point to a rectangle
+  const calculateMinDistanceToRect = (pointX, pointY, rectMinX, rectMinY, rectWidth, rectHeight) => {
+    // Find the closest point on the rectangle to the given point
+    
+    // First, find the closest x-coordinate
+    let closestX;
+    if (pointX < rectMinX) {
+      closestX = rectMinX; // Point is to the left of the rectangle
+    } else if (pointX > rectMinX + rectWidth) {
+      closestX = rectMinX + rectWidth; // Point is to the right of the rectangle
+    } else {
+      closestX = pointX; // Point's x is within the rectangle's x-range
+    }
+    
+    // Next, find the closest y-coordinate
+    let closestY;
+    if (pointY < rectMinY) {
+      closestY = rectMinY; // Point is above the rectangle
+    } else if (pointY > rectMinY + rectHeight) {
+      closestY = rectMinY + rectHeight; // Point is below the rectangle
+    } else {
+      closestY = pointY; // Point's y is within the rectangle's y-range
+    }
+    
+    // If both x and y are within rectangle, point is inside the rectangle
+    if (closestX === pointX && closestY === pointY) {
+      return 0; // Distance is 0 if the point is inside
+    }
+    
+    // Calculate Euclidean distance from point to closest point on rectangle
+    return calculateDistance(pointX, pointY, closestX, closestY);
+  };
+  
+  // Function to check if a green object is near any landmark
+  const isNearLandmarks = (obj, landmarks) => {
+    if (!landmarks || landmarks.length === 0 || !obj) return false;
+    
+    // Get canvas dimensions for coordinate conversion
+    const canvasWidth = videoRef.current.videoWidth;
+    const canvasHeight = videoRef.current.videoHeight;
+    
+    // Check distance to each relevant landmark (focusing on knees - landmarks 25 and 26)
+    for (const landmarkIdx of [25, 26]) { // Left knee (25) and right knee (26)
+      if (landmarks[landmarkIdx]) {
+        const landmark = landmarks[landmarkIdx];
+        
+        // Convert normalized landmark coordinates to pixel coordinates
+        const landmarkX = landmark.x * canvasWidth;
+        const landmarkY = landmark.y * canvasHeight;
+        
+        // Calculate minimum distance from landmark to any point on the object's edge
+        const minDistance = calculateMinDistanceToRect(
+          landmarkX, 
+          landmarkY, 
+          obj.minX, 
+          obj.minY, 
+          obj.width, 
+          obj.height
+        );
+        
+        // If within threshold distance, it's near
+        if (minDistance <= NEAR_DISTANCE) {
+          return true;
+        }
+      }
+    }
+    
+    // If we checked all landmarks and none were near
+    return false;
   };
 
   // Function to convert RGB to HSV
@@ -552,6 +629,20 @@ const App = () => {
               drawKneeJoint(smoothedRightKnee, "right");
             }
           }
+          
+          // Filter green objects based on proximity to landmarks
+          const nearbyGreenObjects = greenObjectsRef.current.filter(obj => 
+            isNearLandmarks(obj, landmarks)
+          );
+          
+          // Clear the green object canvas
+          greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
+          
+          // Draw only the nearby green object bounding boxes
+          drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, nearbyGreenObjects);
+        } else {
+          // If no landmarks detected, clear the green objects canvas
+          greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
         }
       });
     }
@@ -574,7 +665,7 @@ const App = () => {
         const detectedGreenObjects = detectGreenObjects();
         greenObjectsRef.current = detectedGreenObjects;
         
-        // Run pose detection
+        // Run pose detection (which will also filter and draw the green objects)
         predictWebcam();
       }
       
@@ -640,7 +731,7 @@ const App = () => {
             }}>
               <div>Green Object Detection: ACTIVE</div>
               <div style={{fontSize: '12px', opacity: 0.8}}>
-                Detected objects will be highlighted with red boxes
+                Only showing objects within {NEAR_DISTANCE}px of knee landmarks
               </div>
             </div>
           )}
