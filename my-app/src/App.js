@@ -10,7 +10,7 @@ const GREEN_HUE_MAX = 150; // Max green hue in HSV (adjust as needed)
 const GREEN_SATURATION_MIN = 25; // Min saturation percentage
 const GREEN_VALUE_MIN = 25; // Min value percentage
 const MIN_OBJECT_SIZE = 500; // Minimum area in pixels to consider a valid object
-const NEAR_DISTANCE = 100; // Maximum distance in pixels to consider a green object "near" a landmark
+const NEAR_DISTANCE = 50; // Maximum distance in pixels to consider a green object "near" a landmark
 
 const App = () => {
   const [poseLandmarker, setPoseLandmarker] = useState(null);
@@ -717,7 +717,7 @@ const App = () => {
           ></canvas>
           
           {/* Info overlay for green detection */}
-          {webcamRunning && (
+          {/* {webcamRunning && (
             <div style={{
               position: 'absolute',
               top: '10px',
@@ -734,7 +734,7 @@ const App = () => {
                 Only showing objects within {NEAR_DISTANCE}px of knee landmarks
               </div>
             </div>
-          )}
+          )} */}
         </div>
       </div>
     </div>
