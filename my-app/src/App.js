@@ -3,12 +3,6 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   THROTTLE_INTERVAL,
   SMOOTHING_WINDOW_SIZE,
-  // RED_HUE_MAX1,
-  // RED_HUE_MAX2,
-  // RED_HUE_MIN1,
-  // RED_HUE_MIN2,
-  // RED_SATURATION_MIN,
-  // RED_VALUE_MIN,
   GREEN_HUE_MAX,
   GREEN_HUE_MIN,
   GREEN_SATURATION_MIN,
@@ -62,6 +56,9 @@ const App = () => {
         const { PoseLandmarker, FilesetResolver, DrawingUtils } = await import(
           "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
         );
+        
+        // Store DrawingUtils globally for other functions to use
+        window.DrawingUtils = DrawingUtils;
         
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
@@ -384,24 +381,6 @@ const App = () => {
       // Mark pixel in mask (1 for green, 0 for non-green)
       const pixelIndex = Math.floor(i / 4);
       mask[pixelIndex] = isGreen ? 1 : 0;
-      // const r = data[i];
-      // const g = data[i + 1];
-      // const b = data[i + 2];
-      
-      // // Convert RGB to HSV color space for better color detection
-      // const hsv = rgbToHsv(r, g, b);  // Note: fixed parameter order to r,g,b
-      
-      // // Check if the pixel is in the red range (accounting for wrap-around)
-      // const isRed = 
-      //   ((hsv.h >= RED_HUE_MIN1 && hsv.h <= RED_HUE_MAX1) || 
-      //    (hsv.h >= RED_HUE_MIN2 && hsv.h <= RED_HUE_MAX2)) && 
-      //   hsv.s >= RED_SATURATION_MIN && 
-        
-      //   hsv.v >= RED_VALUE_MIN;
-      
-      // // Mark pixel in mask (1 for red, 0 for non-red)
-      // const pixelIndex = Math.floor(i / 4);
-      // mask[pixelIndex] = isRed ? 1 : 0;
     }
     
     // Find connected components (objects) in the mask
@@ -486,10 +465,10 @@ const App = () => {
     // Set the indicator that bounding boxes are drawn
     setIsBoundingBoxShown(objects.length > 0);
     
-    ctx.strokeStyle = '#FF0000'; // Red for the bounding box
+    ctx.strokeStyle = '#00FF00'; // Red for the bounding box
     ctx.lineWidth = 3;
     ctx.font = '16px Arial';
-    ctx.fillStyle = '#FF0000';
+    ctx.fillStyle = '#00FF00';
     
     // Get the canvas width for coordinate flipping
     const canvasWidth = greenCanvasRef.current.width;
@@ -509,7 +488,96 @@ const App = () => {
       ctx.fillText(`Green Obj #${index + 1}`, flippedMinX, obj.minY - 5);
     });
   };
-  
+
+  // Function to draw the full skeleton using MediaPipe's DrawingUtils
+  const drawFullSkeleton = async (landmarks) => {
+    if (!drawingUtilsRef.current || !canvasCtxRef.current || !canvasRef.current) return;
+    
+    // Set the indicator that landmarks are drawn
+    setAreLandmarksShown(true);
+    
+    const canvasWidth = canvasRef.current.width;
+    const canvasHeight = canvasRef.current.height;
+    
+    // Need to flip the context horizontally to match mirror view
+    canvasCtxRef.current.save();
+    canvasCtxRef.current.translate(canvasWidth, 0);
+    canvasCtxRef.current.scale(-1, 1);
+    
+    // Draw the pose landmarks and connections
+    if (landmarks) {
+      // Import PoseLandmarker to access the POSE_CONNECTIONS constant
+      const { PoseLandmarker, DrawingUtils } = await import(
+        "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
+      );
+      
+      // Draw the landmarks with dynamic radius based on z-coordinate
+      drawingUtilsRef.current.drawLandmarks(landmarks, {
+        radius: (data) => {
+          // Use lerp to determine radius based on depth
+          // Points closer to the camera appear larger
+          return data.from?.z 
+            ? DrawingUtils.lerp(data.from.z, -0.15, 0.1, 5, 1)
+            : 3; // Default radius if z is not available
+        },
+        color: '#FFFFFF', // White color for landmarks
+        fillColor: '#4CAF50' // Green fill
+      });
+      
+      // Draw the connections between landmarks using the built-in POSE_CONNECTIONS
+      drawingUtilsRef.current.drawConnectors(
+        landmarks, 
+        PoseLandmarker.POSE_CONNECTIONS,
+        {
+          color: '#FFFFFF', // White color for connections
+          lineWidth: 3
+        }
+      );
+      
+      // Highlight the knee points (landmarks 25 and 26) with a larger, colored circle
+      const knees = [
+        { index: 25, color: '#4CAF50' }, // Left knee - green
+        { index: 26, color: '#2196F3' }  // Right knee - blue
+      ];
+      
+      for (const knee of knees) {
+        if (landmarks[knee.index]) {
+          drawingUtilsRef.current.drawLandmarks(
+            [landmarks[knee.index]],
+            {
+              color: knee.color,
+              radius: 10, // Larger radius for knees
+              fillColor: knee.color
+            }
+          );
+          
+          // Add a label for knees
+          const kneeX = landmarks[knee.index].x * canvasWidth;
+          const kneeY = landmarks[knee.index].y * canvasHeight;
+          
+          // Draw the label on the unflipped context to fix text orientation
+          canvasCtxRef.current.restore(); // Restore unflipped context
+          
+          canvasCtxRef.current.fillStyle = '#FFFFFF';
+          canvasCtxRef.current.font = "16px Arial";
+          canvasCtxRef.current.textAlign = "center";
+          // canvasCtxRef.current.fillText(
+          //   knee.index === 25 ? "L Knee" : "R Knee",
+          //   canvasWidth - kneeX, // Need to flip the x coordinate manually
+          //   kneeY - 15
+          // );
+          
+          // Save and re-flip for continuing to draw landmarks
+          canvasCtxRef.current.save();
+          canvasCtxRef.current.translate(canvasWidth, 0);
+          canvasCtxRef.current.scale(-1, 1);
+        }
+      }
+    }
+    
+    // Restore the canvas context
+    canvasCtxRef.current.restore();
+  };
 
   // Predict from webcam feed
   const predictWebcam = useCallback(async () => {
@@ -527,7 +595,7 @@ const App = () => {
     if (lastVideoTimeRef.current !== videoRef.current.currentTime) {
       lastVideoTimeRef.current = videoRef.current.currentTime;
       
-      const { PoseLandmarker } = await import(
+      const { PoseLandmarker, DrawingUtils } = await import(
         "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
       );
       
@@ -541,30 +609,24 @@ const App = () => {
       drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
       
       // Handle pose detection on the other canvas (now also without flipping)
-      poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
+      poseLandmarker.detectForVideo(videoRef.current, startTimeMs, async (result) => {
         // Clear the pose detection canvas
         canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         
-        // Draw pose landmarks (now without flipping the canvas)
+        // Draw pose landmarks (now using the full skeleton with MediaPipe's DrawingUtils)
         if (result.landmarks && result.landmarks.length > 0) {
           const landmarks = result.landmarks[0]; // Get first detected person
           
-          // Process left knee (landmark 25)
+          // Draw the full skeleton
+          await drawFullSkeleton(landmarks);
+          
+          // Update point history for knees (still needed for near object detection)
           if (landmarks[25]) {
-            const rawLeftKnee = landmarks[25];
-            const smoothedLeftKnee = updatePointHistory(rawLeftKnee, leftKneeHistoryRef);
-            if (smoothedLeftKnee) {
-              drawKneeJoint(canvasCtxRef, canvasRef, setAreLandmarksShown, smoothedLeftKnee, "left");
-            }
+            updatePointHistory(landmarks[25], leftKneeHistoryRef);
           }
           
-          // Process right knee (landmark 26)
           if (landmarks[26]) {
-            const rawRightKnee = landmarks[26];
-            const smoothedRightKnee = updatePointHistory(rawRightKnee, rightKneeHistoryRef);
-            if (smoothedRightKnee) {
-              drawKneeJoint(canvasCtxRef, canvasRef, setAreLandmarksShown, smoothedRightKnee, "right");
-            }
+            updatePointHistory(landmarks[26], rightKneeHistoryRef);
           }
           
           // Filter green objects based on proximity to landmarks
@@ -652,17 +714,6 @@ const App = () => {
             flexDirection: 'column',
             gap: '10px'
           }}>
-            {/* <div>
-              <span style={{ 
-                display: 'inline-block',
-                width: '12px',
-                height: '12px',
-                borderRadius: '50%',
-                marginRight: '8px',
-                backgroundColor: areLandmarksShown ? '#4CAF50' : '#F44336'
-              }}></span>
-              Landmarks: {areLandmarksShown ? 'Detected' : 'Not Detected'}
-            </div> */}
             <div className='status-container'>
               <span className={`status-indicator ${isBoundingBoxShown ? 'status-on' : 'status-off'}`}></span>
               {isBoundingBoxShown ? 'Correct' : 'Incorrect'}

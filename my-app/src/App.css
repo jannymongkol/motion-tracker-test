@@ -62,6 +62,7 @@ video {
   transform: translate(-50%, -50%);
   pointer-events: none;
   z-index: 10;
+  opacity: 0.5;
 }
 
 /* Green detection canvas */
