@@ -57,20 +57,9 @@ video {
 
 .output_canvas {
   position: absolute;
-  /* left: 0;
-  top: 0; */
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  /* -moz-transform: scale(-1, 1);
-  -webkit-transform: scale(-1, 1);
-  -o-transform: scale(-1, 1);
-  transform: scale(-1, 1);
-  filter: FlipH; */
-  /* transform-origin: 0 0;
-  transform: rotateY(180deg);
-  -webkit-transform: rotateY(180deg);
-  -moz-transform: rotateY(180deg); */
   pointer-events: none;
   z-index: 10;
 }

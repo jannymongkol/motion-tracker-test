@@ -456,10 +456,15 @@ const App = () => {
   
   // Custom function to draw knee joints
   const drawKneeJoint = (kneePoint, side) => {
-    if (!canvasCtxRef.current || !kneePoint) return;
+    if (!canvasCtxRef.current || !kneePoint || !canvasRef.current) return;
     
     const ctx = canvasCtxRef.current;
     const radius = 10; // Size of the knee point
+    const canvasWidth = canvasRef.current.width;
+    
+    // Calculate flipped X coordinate to match the mirrored view
+    const flippedX = canvasWidth - (kneePoint.x * canvasWidth);
+    const y = kneePoint.y * canvasRef.current.height;
     
     // Set different colors for left and right knees
     if (side === "left") {
@@ -468,11 +473,11 @@ const App = () => {
       ctx.fillStyle = "#2196F3"; // Blue for right knee
     }
     
-    // Draw the knee point
+    // Draw the knee point with flipped X coordinate
     ctx.beginPath();
     ctx.arc(
-      kneePoint.x * canvasRef.current.width,
-      kneePoint.y * canvasRef.current.height,
+      flippedX,
+      y,
       radius,
       0,
       2 * Math.PI
@@ -484,14 +489,14 @@ const App = () => {
     ctx.lineWidth = 2;
     ctx.stroke();
     
-    // Add a label
+    // Add a label with flipped X coordinate
     ctx.fillStyle = "#FFFFFF";
     ctx.font = "16px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
       side === "left" ? "L Knee" : "R Knee",
-      kneePoint.x * canvasRef.current.width,
-      (kneePoint.y * canvasRef.current.height) - 15
+      flippedX,
+      y - 15
     );
   };
 
@@ -515,23 +520,18 @@ const App = () => {
         "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
       );
       
-      // Clear the green object canvas (not mirrored)
+      // Clear the green object canvas
       greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
       
-      // Draw the green object bounding boxes directly (the function handles the coordinate flipping)
+      // Draw the green object bounding boxes (the function handles the coordinate flipping)
       drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
       
-      // Handle pose detection on the other canvas (still mirrored)
+      // Handle pose detection on the other canvas (now also without flipping)
       poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
         // Clear the pose detection canvas
-        canvasCtxRef.current.save();
         canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         
-        // Flip the canvas horizontally to correct the mirroring
-        canvasCtxRef.current.scale(-1, 1);
-        canvasCtxRef.current.translate(-canvasRef.current.width, 0);
-        
-        // Draw pose landmarks only on this canvas
+        // Draw pose landmarks (now without flipping the canvas)
         if (result.landmarks && result.landmarks.length > 0) {
           const landmarks = result.landmarks[0]; // Get first detected person
           
@@ -553,8 +553,6 @@ const App = () => {
             }
           }
         }
-        
-        canvasCtxRef.current.restore();
       });
     }
   }, [poseLandmarker, runningMode]);
