@@ -1,16 +1,21 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+
+import {
+  THROTTLE_INTERVAL,
+  SMOOTHING_WINDOW_SIZE,
+  GREEN_HUE_MIN,
+  GREEN_HUE_MAX,      
+  GREEN_SATURATION_MIN,
+  GREEN_VALUE_MIN,  
+  MIN_OBJECT_SIZE,     
+  NEAR_DISTANCE,      
+} from './constants';
+
+import { adjustVideoSize } from './adjustVideoSize';
+import { drawKneeJoint } from './drawKneeJoint';
+
 import './App.css';
 
-const THROTTLE_INTERVAL = 200;
-const SMOOTHING_WINDOW_SIZE = 10; // Number of frames to average (adjust based on your THROTTLE_INTERVAL)
-
-// Color detection settings
-const GREEN_HUE_MIN = 90; // Min green hue in HSV (adjust as needed)
-const GREEN_HUE_MAX = 150; // Max green hue in HSV (adjust as needed)
-const GREEN_SATURATION_MIN = 25; // Min saturation percentage
-const GREEN_VALUE_MIN = 25; // Min value percentage
-const MIN_OBJECT_SIZE = 500; // Minimum area in pixels to consider a valid object
-const NEAR_DISTANCE = 50; // Maximum distance in pixels to consider a green object "near" a landmark
 
 const App = () => {
   const [poseLandmarker, setPoseLandmarker] = useState(null);
@@ -18,9 +23,9 @@ const App = () => {
   const [webcamRunning, setWebcamRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
-  // New state booleans for visibility controls
-  const [areLandmarksShown, setAreLandmarksShown] = useState(true);
-  const [isBoundingBoxShown, setIsBoundingBoxShown] = useState(true);
+  // Status indicators for whether landmarks/bounding boxes are drawn
+  const [areLandmarksShown, setAreLandmarksShown] = useState(false);
+  const [isBoundingBoxShown, setIsBoundingBoxShown] = useState(false);
   
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -128,7 +133,7 @@ const App = () => {
               // Now adjust size and start predictions
               if (isMounted) {
                 console.log("isMounted");
-                adjustVideoSize();
+                adjustVideoSize(videoRef, canvasRef, greenCanvasRef);
                 setWebcamRunning(true);
               }
             }
@@ -160,70 +165,13 @@ const App = () => {
     };
   }, [runningMode]);
 
-  // Function to adjust video and canvas size based on the actual video dimensions
-  const adjustVideoSize = () => {
-    if (!videoRef.current || !canvasRef.current || !greenCanvasRef.current) return;
-    
-    // Get the actual video stream dimensions
-    const videoWidth = videoRef.current.videoWidth;
-    const videoHeight = videoRef.current.videoHeight;
-    
-    if (!videoWidth || !videoHeight) {
-      console.log("Video dimensions not yet available");
-      return;
-    }
-    
-    console.log(`Setting dimensions from video: ${videoWidth}x${videoHeight}`);
-    
-    // Get window dimensions
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-    
-    // Calculate the aspect ratio from the video
-    const videoAspectRatio = videoWidth / videoHeight;
-    
-    let newWidth, newHeight;
-    
-    if (windowWidth / windowHeight > videoAspectRatio) {
-      // Window is wider than video aspect ratio
-      newHeight = windowHeight * 0.9; // 90% of window height
-      newWidth = newHeight * videoAspectRatio;
-    } else {
-      // Window is taller than video aspect ratio
-      newWidth = windowWidth * 0.9; // 90% of window width
-      newHeight = newWidth / videoAspectRatio;
-    }
-    
-    // Apply dimensions to video display
-    videoRef.current.style.width = `${newWidth}px`;
-    videoRef.current.style.height = `${newHeight}px`;
-    
-    // Set canvas display dimensions to match the video display size
-    canvasRef.current.style.width = `${newWidth}px`;
-    canvasRef.current.style.height = `${newHeight}px`;
-    
-    // Set green canvas display dimensions to match the video display size
-    greenCanvasRef.current.style.width = `${newWidth}px`;
-    greenCanvasRef.current.style.height = `${newHeight}px`;
-    
-    // Important: set the canvas drawing dimensions to match the video's intrinsic dimensions
-    // This ensures correct coordinate mapping between video and canvas
-    canvasRef.current.width = videoWidth;
-    canvasRef.current.height = videoHeight;
-    
-    // Set the green canvas drawing dimensions
-    greenCanvasRef.current.width = videoWidth;
-    greenCanvasRef.current.height = videoHeight;
-    
-    console.log(`Adjusted sizes - Display: ${newWidth}x${newHeight}, Canvas drawing area: ${videoWidth}x${videoHeight}`);
-  };
   
   // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       if (videoRef.current && videoRef.current.videoWidth) {
         console.log("handleResize");
-        adjustVideoSize();
+        adjustVideoSize(videoRef, canvasRef, greenCanvasRef);
       }
     };
     
@@ -511,8 +459,8 @@ const App = () => {
   
   // Function to draw bounding boxes around green objects
   const drawGreenObjectBoundingBoxes = (ctx, objects) => {
-    // If bounding boxes are disabled, skip drawing
-    if (!isBoundingBoxShown) return;
+    // Set the indicator that bounding boxes are drawn
+    setIsBoundingBoxShown(objects.length > 0);
     
     ctx.strokeStyle = '#FF0000'; // Red for the bounding box
     ctx.lineWidth = 3;
@@ -538,54 +486,6 @@ const App = () => {
     });
   };
   
-  // Custom function to draw knee joints
-  const drawKneeJoint = (kneePoint, side) => {
-    // If landmarks are disabled, skip drawing
-    if (!areLandmarksShown) return;
-    
-    if (!canvasCtxRef.current || !kneePoint || !canvasRef.current) return;
-    
-    const ctx = canvasCtxRef.current;
-    const radius = 10; // Size of the knee point
-    const canvasWidth = canvasRef.current.width;
-    
-    // Calculate flipped X coordinate to match the mirrored view
-    const flippedX = canvasWidth - (kneePoint.x * canvasWidth);
-    const y = kneePoint.y * canvasRef.current.height;
-    
-    // Set different colors for left and right knees
-    if (side === "left") {
-      ctx.fillStyle = "#4CAF50"; // Green for left knee
-    } else {
-      ctx.fillStyle = "#2196F3"; // Blue for right knee
-    }
-    
-    // Draw the knee point with flipped X coordinate
-    ctx.beginPath();
-    ctx.arc(
-      flippedX,
-      y,
-      radius,
-      0,
-      2 * Math.PI
-    );
-    ctx.fill();
-    
-    // Add a border
-    ctx.strokeStyle = "#FFFFFF";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // Add a label with flipped X coordinate
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "16px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(
-      side === "left" ? "L Knee" : "R Knee",
-      flippedX,
-      y - 15
-    );
-  };
 
   // Predict from webcam feed
   const predictWebcam = useCallback(async () => {
@@ -607,18 +507,21 @@ const App = () => {
         "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
       );
       
-      // Always clear both canvases regardless of visibility settings
-      canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      // Clear the green object canvas
       greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
       
-      // Only draw bounding boxes if enabled
-      if (isBoundingBoxShown) {
-        // Draw the green object bounding boxes (the function handles the coordinate flipping)
-        drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
-      }
+      // Reset the indicator for landmarks if we clear the canvas
+      setAreLandmarksShown(false);
+      
+      // Draw the green object bounding boxes (the function handles the coordinate flipping)
+      drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
       
       // Handle pose detection on the other canvas (now also without flipping)
       poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
+        // Clear the pose detection canvas
+        canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        
+        // Draw pose landmarks (now without flipping the canvas)
         if (result.landmarks && result.landmarks.length > 0) {
           const landmarks = result.landmarks[0]; // Get first detected person
           
@@ -627,7 +530,7 @@ const App = () => {
             const rawLeftKnee = landmarks[25];
             const smoothedLeftKnee = updatePointHistory(rawLeftKnee, leftKneeHistoryRef);
             if (smoothedLeftKnee) {
-              drawKneeJoint(smoothedLeftKnee, "left");
+              drawKneeJoint(canvasCtxRef, canvasRef, setAreLandmarksShown, smoothedLeftKnee, "left");
             }
           }
           
@@ -636,27 +539,33 @@ const App = () => {
             const rawRightKnee = landmarks[26];
             const smoothedRightKnee = updatePointHistory(rawRightKnee, rightKneeHistoryRef);
             if (smoothedRightKnee) {
-              drawKneeJoint(smoothedRightKnee, "right");
+              drawKneeJoint(canvasCtxRef, canvasRef, setAreLandmarksShown, smoothedRightKnee, "right");
             }
           }
           
-          // Only process and draw nearby green objects if bounding boxes are enabled
-          if (isBoundingBoxShown) {
-            // Filter green objects based on proximity to landmarks
-            const nearbyGreenObjects = greenObjectsRef.current.filter(obj => 
-              isNearLandmarks(obj, landmarks)
-            );
-            
-            // Clear the green object canvas
-            greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
-            
-            // Draw only the nearby green object bounding boxes
-            drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, nearbyGreenObjects);
-          }
+          // Filter green objects based on proximity to landmarks
+          const nearbyGreenObjects = greenObjectsRef.current.filter(obj => 
+            isNearLandmarks(obj, landmarks)
+          );
+          
+          // Clear the green object canvas
+          greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
+          
+          // Draw only the nearby green object bounding boxes
+          drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, nearbyGreenObjects);
+        } else {
+          // If no landmarks detected, set the indicator
+          setAreLandmarksShown(false);
+          
+          // Clear the green objects canvas
+          greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
+          
+          // Reset the bounding box indicator
+          setIsBoundingBoxShown(false);
         }
       });
     }
-  }, [poseLandmarker, runningMode, areLandmarksShown, isBoundingBoxShown]);
+  }, [poseLandmarker, runningMode]);
 
   // Set up throttled interval for predictWebcam when webcam is running
   useEffect(() => {
@@ -699,23 +608,14 @@ const App = () => {
     };
   }, [webcamRunning, predictWebcam]);
 
-  // Toggle handlers for the visibility controls
-  const toggleLandmarks = () => {
-    setAreLandmarksShown(prev => !prev);
-  };
-
-  const toggleBoundingBoxes = () => {
-    setIsBoundingBoxShown(prev => !prev);
-  };
-
   return (
     <div className="App">
       <div id="liveView" className="videoView">
         {isLoading && <div className="loading-indicator">Loading pose detection model...</div>}
         
-        {/* Add controls for toggling visibility */}
+        {/* Add status indicators */}
         {webcamRunning && (
-          <div className="control-panel" style={{
+          <div className="status-panel" style={{
             position: 'absolute',
             top: '10px',
             left: '10px',
@@ -729,26 +629,26 @@ const App = () => {
             gap: '10px'
           }}>
             <div>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                <input 
-                  type="checkbox" 
-                  checked={areLandmarksShown} 
-                  onChange={toggleLandmarks}
-                  style={{ marginRight: '8px' }}
-                />
-                Show Landmarks
-              </label>
+              <span style={{ 
+                display: 'inline-block',
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                marginRight: '8px',
+                backgroundColor: areLandmarksShown ? '#4CAF50' : '#F44336'
+              }}></span>
+              Landmarks: {areLandmarksShown ? 'Detected' : 'Not Detected'}
             </div>
             <div>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                <input 
-                  type="checkbox" 
-                  checked={isBoundingBoxShown} 
-                  onChange={toggleBoundingBoxes}
-                  style={{ marginRight: '8px' }}
-                />
-                Show Bounding Boxes
-              </label>
+              <span style={{ 
+                display: 'inline-block',
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                marginRight: '8px',
+                backgroundColor: isBoundingBoxShown ? '#4CAF50' : '#F44336'
+              }}></span>
+              Green Objects: {isBoundingBoxShown ? 'Detected' : 'Not Detected'}
             </div>
           </div>
         )}
@@ -767,7 +667,6 @@ const App = () => {
             className="output_canvas" 
             id="output_canvas" 
             ref={canvasRef}
-            style={{ opacity: areLandmarksShown ? 1 : 0 }}
           ></canvas>
           
           {/* Green object detection canvas (not mirrored) */}
@@ -775,7 +674,6 @@ const App = () => {
             className="green_detection_canvas" 
             id="green_detection_canvas" 
             ref={greenCanvasRef}
-            style={{ opacity: isBoundingBoxShown ? 1 : 0 }}
           ></canvas>
         </div>
       </div>
