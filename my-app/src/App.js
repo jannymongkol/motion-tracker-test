@@ -18,6 +18,10 @@ const App = () => {
   const [webcamRunning, setWebcamRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
+  // New state booleans for visibility controls
+  const [areLandmarksShown, setAreLandmarksShown] = useState(true);
+  const [isBoundingBoxShown, setIsBoundingBoxShown] = useState(true);
+  
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const canvasCtxRef = useRef(null);
@@ -507,6 +511,9 @@ const App = () => {
   
   // Function to draw bounding boxes around green objects
   const drawGreenObjectBoundingBoxes = (ctx, objects) => {
+    // If bounding boxes are disabled, skip drawing
+    if (!isBoundingBoxShown) return;
+    
     ctx.strokeStyle = '#FF0000'; // Red for the bounding box
     ctx.lineWidth = 3;
     ctx.font = '16px Arial';
@@ -533,6 +540,9 @@ const App = () => {
   
   // Custom function to draw knee joints
   const drawKneeJoint = (kneePoint, side) => {
+    // If landmarks are disabled, skip drawing
+    if (!areLandmarksShown) return;
+    
     if (!canvasCtxRef.current || !kneePoint || !canvasRef.current) return;
     
     const ctx = canvasCtxRef.current;
@@ -597,18 +607,18 @@ const App = () => {
         "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
       );
       
-      // Clear the green object canvas
+      // Always clear both canvases regardless of visibility settings
+      canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
       
-      // Draw the green object bounding boxes (the function handles the coordinate flipping)
-      drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
+      // Only draw bounding boxes if enabled
+      if (isBoundingBoxShown) {
+        // Draw the green object bounding boxes (the function handles the coordinate flipping)
+        drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
+      }
       
       // Handle pose detection on the other canvas (now also without flipping)
       poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
-        // Clear the pose detection canvas
-        canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        
-        // Draw pose landmarks (now without flipping the canvas)
         if (result.landmarks && result.landmarks.length > 0) {
           const landmarks = result.landmarks[0]; // Get first detected person
           
@@ -630,23 +640,23 @@ const App = () => {
             }
           }
           
-          // Filter green objects based on proximity to landmarks
-          const nearbyGreenObjects = greenObjectsRef.current.filter(obj => 
-            isNearLandmarks(obj, landmarks)
-          );
-          
-          // Clear the green object canvas
-          greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
-          
-          // Draw only the nearby green object bounding boxes
-          drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, nearbyGreenObjects);
-        } else {
-          // If no landmarks detected, clear the green objects canvas
-          greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
+          // Only process and draw nearby green objects if bounding boxes are enabled
+          if (isBoundingBoxShown) {
+            // Filter green objects based on proximity to landmarks
+            const nearbyGreenObjects = greenObjectsRef.current.filter(obj => 
+              isNearLandmarks(obj, landmarks)
+            );
+            
+            // Clear the green object canvas
+            greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
+            
+            // Draw only the nearby green object bounding boxes
+            drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, nearbyGreenObjects);
+          }
         }
       });
     }
-  }, [poseLandmarker, runningMode]);
+  }, [poseLandmarker, runningMode, areLandmarksShown, isBoundingBoxShown]);
 
   // Set up throttled interval for predictWebcam when webcam is running
   useEffect(() => {
@@ -689,10 +699,60 @@ const App = () => {
     };
   }, [webcamRunning, predictWebcam]);
 
+  // Toggle handlers for the visibility controls
+  const toggleLandmarks = () => {
+    setAreLandmarksShown(prev => !prev);
+  };
+
+  const toggleBoundingBoxes = () => {
+    setIsBoundingBoxShown(prev => !prev);
+  };
+
   return (
     <div className="App">
       <div id="liveView" className="videoView">
         {isLoading && <div className="loading-indicator">Loading pose detection model...</div>}
+        
+        {/* Add controls for toggling visibility */}
+        {webcamRunning && (
+          <div className="control-panel" style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            color: 'white',
+            padding: '10px',
+            borderRadius: '5px',
+            zIndex: 30,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={areLandmarksShown} 
+                  onChange={toggleLandmarks}
+                  style={{ marginRight: '8px' }}
+                />
+                Show Landmarks
+              </label>
+            </div>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={isBoundingBoxShown} 
+                  onChange={toggleBoundingBoxes}
+                  style={{ marginRight: '8px' }}
+                />
+                Show Bounding Boxes
+              </label>
+            </div>
+          </div>
+        )}
+        
         <div id="videoContainer">
           <video 
             id="webcam" 
@@ -707,6 +767,7 @@ const App = () => {
             className="output_canvas" 
             id="output_canvas" 
             ref={canvasRef}
+            style={{ opacity: areLandmarksShown ? 1 : 0 }}
           ></canvas>
           
           {/* Green object detection canvas (not mirrored) */}
@@ -714,27 +775,8 @@ const App = () => {
             className="green_detection_canvas" 
             id="green_detection_canvas" 
             ref={greenCanvasRef}
+            style={{ opacity: isBoundingBoxShown ? 1 : 0 }}
           ></canvas>
-          
-          {/* Info overlay for green detection */}
-          {/* {webcamRunning && (
-            <div style={{
-              position: 'absolute',
-              top: '10px',
-              left: '10px',
-              backgroundColor: 'rgba(0, 0, 0, 0.6)',
-              color: 'white',
-              padding: '8px',
-              borderRadius: '4px',
-              fontSize: '14px',
-              zIndex: 20
-            }}>
-              <div>Green Object Detection: ACTIVE</div>
-              <div style={{fontSize: '12px', opacity: 0.8}}>
-                Only showing objects within {NEAR_DISTANCE}px of knee landmarks
-              </div>
-            </div>
-          )} */}
         </div>
       </div>
     </div>
