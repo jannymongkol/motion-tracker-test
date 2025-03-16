@@ -75,6 +75,16 @@ video {
   z-index: 10;
 }
 
+/* Green detection canvas */
+.green_detection_canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 15; /* Higher z-index to be on top of the pose canvas */
+}
+
 /* Video view */
 .videoView {
   position: relative;

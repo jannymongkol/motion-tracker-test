@@ -23,6 +23,10 @@ const App = () => {
   const drawingUtilsRef = useRef(null);
   const lastVideoTimeRef = useRef(-1);
   
+  // Add reference for the new green object detection canvas
+  const greenCanvasRef = useRef(null);
+  const greenCanvasCtxRef = useRef(null);
+  
   // References for tracking position history
   const leftKneeHistoryRef = useRef([]);
   const rightKneeHistoryRef = useRef([]);
@@ -65,6 +69,11 @@ const App = () => {
           if (canvasRef.current) {
             canvasCtxRef.current = canvasRef.current.getContext("2d");
             drawingUtilsRef.current = new DrawingUtils(canvasCtxRef.current);
+          }
+          
+          // Initialize green object detection canvas
+          if (greenCanvasRef.current) {
+            greenCanvasCtxRef.current = greenCanvasRef.current.getContext("2d");
           }
           
           setIsLoading(false);
@@ -148,7 +157,7 @@ const App = () => {
 
   // Function to adjust video and canvas size based on the actual video dimensions
   const adjustVideoSize = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !greenCanvasRef.current) return;
     
     // Get the actual video stream dimensions
     const videoWidth = videoRef.current.videoWidth;
@@ -188,10 +197,18 @@ const App = () => {
     canvasRef.current.style.width = `${newWidth}px`;
     canvasRef.current.style.height = `${newHeight}px`;
     
+    // Set green canvas display dimensions to match the video display size
+    greenCanvasRef.current.style.width = `${newWidth}px`;
+    greenCanvasRef.current.style.height = `${newHeight}px`;
+    
     // Important: set the canvas drawing dimensions to match the video's intrinsic dimensions
     // This ensures correct coordinate mapping between video and canvas
     canvasRef.current.width = videoWidth;
     canvasRef.current.height = videoHeight;
+    
+    // Set the green canvas drawing dimensions
+    greenCanvasRef.current.width = videoWidth;
+    greenCanvasRef.current.height = videoHeight;
     
     console.log(`Adjusted sizes - Display: ${newWidth}x${newHeight}, Canvas drawing area: ${videoWidth}x${videoHeight}`);
   };
@@ -418,14 +435,22 @@ const App = () => {
     ctx.font = '16px Arial';
     ctx.fillStyle = '#FF0000';
     
+    // Get the canvas width for coordinate flipping
+    const canvasWidth = greenCanvasRef.current.width;
+    
     objects.forEach((obj, index) => {
-      // Draw bounding box
+      // Calculate flipped coordinates for the bounding box
+      const flippedMinX = canvasWidth - obj.maxX;
+      const flippedMaxX = canvasWidth - obj.minX;
+      const width = obj.width; // Width stays the same
+      
+      // Draw bounding box using flipped coordinates
       ctx.beginPath();
-      ctx.rect(obj.minX, obj.minY, obj.width, obj.height);
+      ctx.rect(flippedMinX, obj.minY, width, obj.height);
       ctx.stroke();
       
-      // Draw label
-      ctx.fillText(`Green Obj #${index + 1}`, obj.minX, obj.minY - 5);
+      // Draw label with flipped coordinates
+      ctx.fillText(`Green Obj #${index + 1}`, flippedMinX, obj.minY - 5);
     });
   };
   
@@ -472,7 +497,8 @@ const App = () => {
 
   // Predict from webcam feed
   const predictWebcam = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !poseLandmarker || !canvasCtxRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !greenCanvasRef.current || !poseLandmarker || 
+        !canvasCtxRef.current || !greenCanvasCtxRef.current) return;
     
     // Switch to video mode if needed
     if (runningMode === "IMAGE") {
@@ -489,8 +515,15 @@ const App = () => {
         "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
       );
       
+      // Clear the green object canvas (not mirrored)
+      greenCanvasCtxRef.current.clearRect(0, 0, greenCanvasRef.current.width, greenCanvasRef.current.height);
+      
+      // Draw the green object bounding boxes directly (the function handles the coordinate flipping)
+      drawGreenObjectBoundingBoxes(greenCanvasCtxRef.current, greenObjectsRef.current);
+      
+      // Handle pose detection on the other canvas (still mirrored)
       poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
-        // Clear the entire canvas
+        // Clear the pose detection canvas
         canvasCtxRef.current.save();
         canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         
@@ -498,23 +531,7 @@ const App = () => {
         canvasCtxRef.current.scale(-1, 1);
         canvasCtxRef.current.translate(-canvasRef.current.width, 0);
         
-        // Draw green object bounding boxes (before drawing pose landmarks)
-        // Need to apply the same mirroring transformation to the coordinates
-        const greenObjects = greenObjectsRef.current.map(obj => {
-          return {
-            ...obj,
-            // Transform coordinates to account for the horizontal flip
-            minX: canvasRef.current.width - obj.maxX,
-            maxX: canvasRef.current.width - obj.minX,
-            // Width doesn't change when flipping
-            width: obj.width
-          };
-        });
-        
-        // Draw the green object bounding boxes
-        drawGreenObjectBoundingBoxes(canvasCtxRef.current, greenObjects);
-        
-        // Draw pose landmarks
+        // Draw pose landmarks only on this canvas
         if (result.landmarks && result.landmarks.length > 0) {
           const landmarks = result.landmarks[0]; // Get first detected person
           
@@ -595,10 +612,19 @@ const App = () => {
             playsInline
             muted
           ></video>
+          
+          {/* Pose detection canvas (mirrored) */}
           <canvas 
             className="output_canvas" 
             id="output_canvas" 
             ref={canvasRef}
+          ></canvas>
+          
+          {/* Green object detection canvas (not mirrored) */}
+          <canvas 
+            className="green_detection_canvas" 
+            id="green_detection_canvas" 
+            ref={greenCanvasRef}
           ></canvas>
           
           {/* Info overlay for green detection */}
