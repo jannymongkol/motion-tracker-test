@@ -88,3 +88,19 @@ video {
   height: 100vh;
   overflow: hidden;
 }
+
+/* Bounding box styles - these are applied programmatically but defined here for reference */
+.green-object-box {
+  border: 3px solid red;
+  position: absolute;
+  pointer-events: none;
+}
+
+.green-object-label {
+  background-color: rgba(255, 0, 0, 0.7);
+  color: white;
+  padding: 2px 5px;
+  font-size: 12px;
+  position: absolute;
+  transform: translateY(-100%);
+}

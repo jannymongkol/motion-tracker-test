@@ -4,6 +4,13 @@ import './App.css';
 const THROTTLE_INTERVAL = 200;
 const SMOOTHING_WINDOW_SIZE = 10; // Number of frames to average (adjust based on your THROTTLE_INTERVAL)
 
+// Color detection settings
+const GREEN_HUE_MIN = 90; // Min green hue in HSV (adjust as needed)
+const GREEN_HUE_MAX = 150; // Max green hue in HSV (adjust as needed)
+const GREEN_SATURATION_MIN = 25; // Min saturation percentage
+const GREEN_VALUE_MIN = 25; // Min value percentage
+const MIN_OBJECT_SIZE = 500; // Minimum area in pixels to consider a valid object
+
 const App = () => {
   const [poseLandmarker, setPoseLandmarker] = useState(null);
   const [runningMode, setRunningMode] = useState("VIDEO");
@@ -19,6 +26,11 @@ const App = () => {
   // References for tracking position history
   const leftKneeHistoryRef = useRef([]);
   const rightKneeHistoryRef = useRef([]);
+  
+  // Reference for storing detected green objects
+  const greenObjectsRef = useRef([]);
+  // Temporary canvas for image processing
+  const processingCanvasRef = useRef(document.createElement('canvas'));
   
   // Initialize pose landmarker and start webcam when component mounts
   useEffect(() => {
@@ -245,61 +257,178 @@ const App = () => {
     };
   };
 
-  // Predict from webcam feed
-  const predictWebcam = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !poseLandmarker || !canvasCtxRef.current) return;
+  // Function to convert RGB to HSV
+  const rgbToHsv = (r, g, b) => {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const diff = max - min;
     
-    // Switch to video mode if needed
-    if (runningMode === "IMAGE") {
-      setRunningMode("VIDEO");
-      await poseLandmarker.setOptions({ runningMode: "VIDEO" });
+    let h = 0;
+    let s = max === 0 ? 0 : diff / max;
+    const v = max;
+
+    if (diff === 0) {
+      h = 0;
+    } else if (max === r) {
+      h = 60 * (((g - b) / diff) % 6);
+    } else if (max === g) {
+      h = 60 * ((b - r) / diff + 2);
+    } else {
+      h = 60 * ((r - g) / diff + 4);
+    }
+
+    if (h < 0) h += 360;
+    
+    // Return HSV values
+    return {
+      h: h,                 // Hue: 0-360
+      s: s * 100,           // Saturation: 0-100%
+      v: v * 100            // Value: 0-100%
+    };
+  };
+
+  // Function to detect green objects in the video frame
+  const detectGreenObjects = () => {
+    if (!videoRef.current || !processingCanvasRef.current) return [];
+    
+    const video = videoRef.current;
+    const canvas = processingCanvasRef.current;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    
+    // Set processing canvas to video dimensions
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    // Draw current video frame to the processing canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Get image data for processing
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    // Create a binary mask for green pixels
+    const mask = new Uint8Array(canvas.width * canvas.height);
+    
+    // Analyze each pixel to identify green objects
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // Convert RGB to HSV color space for better color detection
+      const hsv = rgbToHsv(r, g, b);
+      
+      // Check if the pixel is in the green range
+      const isGreen = 
+        hsv.h >= GREEN_HUE_MIN && 
+        hsv.h <= GREEN_HUE_MAX && 
+        hsv.s >= GREEN_SATURATION_MIN && 
+        hsv.v >= GREEN_VALUE_MIN;
+      
+      // Mark pixel in mask (1 for green, 0 for non-green)
+      const pixelIndex = Math.floor(i / 4);
+      mask[pixelIndex] = isGreen ? 1 : 0;
     }
     
-    const startTimeMs = performance.now();
+    // Find connected components (objects) in the mask
+    const objects = findConnectedComponents(mask, canvas.width, canvas.height);
     
-    if (lastVideoTimeRef.current !== videoRef.current.currentTime) {
-      lastVideoTimeRef.current = videoRef.current.currentTime;
-      
-      const { PoseLandmarker } = await import(
-        "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
-      );
-      
-      poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
-        // Clear the entire canvas
-        canvasCtxRef.current.save();
-        canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    return objects;
+  };
+  
+  // Find connected components using a simple flood fill algorithm
+  const findConnectedComponents = (mask, width, height) => {
+    const visited = new Uint8Array(mask.length);
+    const objects = [];
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // 4-connectivity
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
         
-        // Flip the canvas horizontally to correct the mirroring
-        canvasCtxRef.current.scale(-1, 1);
-        canvasCtxRef.current.translate(-canvasRef.current.width, 0);
+        // Skip if pixel is not green or already visited
+        if (mask[idx] !== 1 || visited[idx] === 1) continue;
         
-        if (result.landmarks && result.landmarks.length > 0) {
-          const landmarks = result.landmarks[0]; // Get first detected person
+        // Start a new object
+        const object = {
+          pixels: [],
+          minX: width,
+          minY: height,
+          maxX: 0,
+          maxY: 0
+        };
+        
+        // Use a queue for breadth-first traversal
+        const queue = [[x, y]];
+        visited[idx] = 1;
+        
+        while (queue.length > 0) {
+          const [cx, cy] = queue.shift();
+          const currentIdx = cy * width + cx;
           
-          // Process left knee (landmark 25)
-          if (landmarks[25]) {
-            const rawLeftKnee = landmarks[25];
-            const smoothedLeftKnee = updatePointHistory(rawLeftKnee, leftKneeHistoryRef);
-            if (smoothedLeftKnee) {
-              drawKneeJoint(smoothedLeftKnee, "left");
-            }
-          }
+          // Add pixel to the current object
+          object.pixels.push([cx, cy]);
           
-          // Process right knee (landmark 26)
-          if (landmarks[26]) {
-            const rawRightKnee = landmarks[26];
-            const smoothedRightKnee = updatePointHistory(rawRightKnee, rightKneeHistoryRef);
-            if (smoothedRightKnee) {
-              drawKneeJoint(smoothedRightKnee, "right");
+          // Update bounding box
+          object.minX = Math.min(object.minX, cx);
+          object.minY = Math.min(object.minY, cy);
+          object.maxX = Math.max(object.maxX, cx);
+          object.maxY = Math.max(object.maxY, cy);
+          
+          // Check neighbors
+          for (const [dx, dy] of directions) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            
+            // Check boundaries
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            
+            const neighborIdx = ny * width + nx;
+            
+            // Add unvisited green neighbors to queue
+            if (mask[neighborIdx] === 1 && visited[neighborIdx] === 0) {
+              queue.push([nx, ny]);
+              visited[neighborIdx] = 1;
             }
           }
         }
         
-        canvasCtxRef.current.restore();
-      });
+        // Calculate object area and add to list if it's large enough
+        const area = object.pixels.length;
+        if (area >= MIN_OBJECT_SIZE) {
+          object.width = object.maxX - object.minX + 1;
+          object.height = object.maxY - object.minY + 1;
+          object.area = area;
+          objects.push(object);
+        }
+      }
     }
-  }, [poseLandmarker, runningMode]);
-
+    
+    return objects;
+  };
+  
+  // Function to draw bounding boxes around green objects
+  const drawGreenObjectBoundingBoxes = (ctx, objects) => {
+    ctx.strokeStyle = '#FF0000'; // Red for the bounding box
+    ctx.lineWidth = 3;
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#FF0000';
+    
+    objects.forEach((obj, index) => {
+      // Draw bounding box
+      ctx.beginPath();
+      ctx.rect(obj.minX, obj.minY, obj.width, obj.height);
+      ctx.stroke();
+      
+      // Draw label
+      ctx.fillText(`Green Obj #${index + 1}`, obj.minX, obj.minY - 5);
+    });
+  };
+  
   // Custom function to draw knee joints
   const drawKneeJoint = (kneePoint, side) => {
     if (!canvasCtxRef.current || !kneePoint) return;
@@ -341,6 +470,78 @@ const App = () => {
     );
   };
 
+  // Predict from webcam feed
+  const predictWebcam = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || !poseLandmarker || !canvasCtxRef.current) return;
+    
+    // Switch to video mode if needed
+    if (runningMode === "IMAGE") {
+      setRunningMode("VIDEO");
+      await poseLandmarker.setOptions({ runningMode: "VIDEO" });
+    }
+    
+    const startTimeMs = performance.now();
+    
+    if (lastVideoTimeRef.current !== videoRef.current.currentTime) {
+      lastVideoTimeRef.current = videoRef.current.currentTime;
+      
+      const { PoseLandmarker } = await import(
+        "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.0"
+      );
+      
+      poseLandmarker.detectForVideo(videoRef.current, startTimeMs, (result) => {
+        // Clear the entire canvas
+        canvasCtxRef.current.save();
+        canvasCtxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        
+        // Flip the canvas horizontally to correct the mirroring
+        canvasCtxRef.current.scale(-1, 1);
+        canvasCtxRef.current.translate(-canvasRef.current.width, 0);
+        
+        // Draw green object bounding boxes (before drawing pose landmarks)
+        // Need to apply the same mirroring transformation to the coordinates
+        const greenObjects = greenObjectsRef.current.map(obj => {
+          return {
+            ...obj,
+            // Transform coordinates to account for the horizontal flip
+            minX: canvasRef.current.width - obj.maxX,
+            maxX: canvasRef.current.width - obj.minX,
+            // Width doesn't change when flipping
+            width: obj.width
+          };
+        });
+        
+        // Draw the green object bounding boxes
+        drawGreenObjectBoundingBoxes(canvasCtxRef.current, greenObjects);
+        
+        // Draw pose landmarks
+        if (result.landmarks && result.landmarks.length > 0) {
+          const landmarks = result.landmarks[0]; // Get first detected person
+          
+          // Process left knee (landmark 25)
+          if (landmarks[25]) {
+            const rawLeftKnee = landmarks[25];
+            const smoothedLeftKnee = updatePointHistory(rawLeftKnee, leftKneeHistoryRef);
+            if (smoothedLeftKnee) {
+              drawKneeJoint(smoothedLeftKnee, "left");
+            }
+          }
+          
+          // Process right knee (landmark 26)
+          if (landmarks[26]) {
+            const rawRightKnee = landmarks[26];
+            const smoothedRightKnee = updatePointHistory(rawRightKnee, rightKneeHistoryRef);
+            if (smoothedRightKnee) {
+              drawKneeJoint(smoothedRightKnee, "right");
+            }
+          }
+        }
+        
+        canvasCtxRef.current.restore();
+      });
+    }
+  }, [poseLandmarker, runningMode]);
+
   // Set up throttled interval for predictWebcam when webcam is running
   useEffect(() => {
     let animationFrameId = null;
@@ -353,6 +554,12 @@ const App = () => {
       // Only run if enough time has passed (THROTTLE_INTERVAL)
       if (elapsed > THROTTLE_INTERVAL) {
         lastCallTime = timestamp;
+        
+        // Detect green objects in the frame
+        const detectedGreenObjects = detectGreenObjects();
+        greenObjectsRef.current = detectedGreenObjects;
+        
+        // Run pose detection
         predictWebcam();
       }
       
@@ -393,6 +600,26 @@ const App = () => {
             id="output_canvas" 
             ref={canvasRef}
           ></canvas>
+          
+          {/* Info overlay for green detection */}
+          {webcamRunning && (
+            <div style={{
+              position: 'absolute',
+              top: '10px',
+              left: '10px',
+              backgroundColor: 'rgba(0, 0, 0, 0.6)',
+              color: 'white',
+              padding: '8px',
+              borderRadius: '4px',
+              fontSize: '14px',
+              zIndex: 20
+            }}>
+              <div>Green Object Detection: ACTIVE</div>
+              <div style={{fontSize: '12px', opacity: 0.8}}>
+                Detected objects will be highlighted with red boxes
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
