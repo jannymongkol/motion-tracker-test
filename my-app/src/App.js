@@ -485,7 +485,7 @@ const App = () => {
       ctx.stroke();
       
       // Draw label with flipped coordinates
-      ctx.fillText(`Green Obj #${index + 1}`, flippedMinX, obj.minY - 5);
+      // ctx.fillText(`Green Obj #${index + 1}`, flippedMinX, obj.minY - 5);
     });
   };
 
